@@ -223,3 +223,10 @@ __marimo__/
 ridewise.db
 *.db
 *.sqlite3
+
+# Frontend
+web/node_modules
+web/dist
+
+# Uploaded motorcycle photos
+uploads/

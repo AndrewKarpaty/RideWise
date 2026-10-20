@@ -16,10 +16,10 @@ You say *"twisty backroads this Saturday, about 250 km, home before dark"*. Ride
 
 ## Setup
 
-Needs Python 3.12+ and [uv](https://docs.astral.sh/uv/).
+Needs Python 3.12+, [uv](https://docs.astral.sh/uv/), and Node 18+ for the web app.
 
 ```bash
-uv sync --extra dev          # or: make install
+make install                 # uv sync --extra dev, then npm install in web/
 cp .env.example .env
 uv run python -m ridewise.seed   # a starter garage and home base
 ```
@@ -37,13 +37,32 @@ No key is needed for weather ([Open-Meteo](https://open-meteo.com)) or fuel stat
 
 ## Running it
 
+Two processes in development — the API on :8000 and Vite on :5173, which proxies
+`/api` to it:
+
 ```bash
-make run                     # streamlit run src/ridewise/ui/app.py
+make api      # uvicorn, port 8000
+make web      # vite, port 5173  → open this one
 ```
 
-Four pages: **Plan a ride**, **Garage** (your bikes), **Rider profile** (home base, how cold you will ride, rain tolerance) and **History**.
+Four screens, in a line: **log in**, **your motorcycle** (with a photo),
+**ask**, **options**. The planner takes about ten seconds and the Ask screen
+streams its eight steps over server-sent events while you wait.
 
-There is a CLI too, which is the quickest way to iterate on the graph:
+For a single process, build the frontend and let the API serve it:
+
+```bash
+make build
+make api      # now also serves web/dist at /
+```
+
+> **Accounts are not implemented.** The login screen remembers a name in
+> `localStorage` and nothing else — there is no password, no session and no
+> per-user data. Everything is one shared garage. See issue #14.
+
+The original Streamlit UI is still here and still works (`make run`); it is the
+quickest way to see a plan without the frontend. There is a CLI too, which is
+the quickest way to iterate on the graph:
 
 ```bash
 uv run ridewise plan "twisty backroads Saturday, 250 km, back before dark"
@@ -76,7 +95,9 @@ free text ──────►│ intake    LLM → geocode            │
 | `agent/` | The LangGraph graph, its state, and the nodes. |
 | `llm.py` | LiteLLM access and schema-validated JSON. |
 | `models.py` | SQLModel garage tables and the Pydantic plan types. |
-| `ui/` | Streamlit pages and the folium map. |
+| `api.py` | FastAPI over `plan_ride`, plus garage CRUD and photo upload. Thin by design. |
+| `ui/` | The original Streamlit pages and the folium map. |
+| `web/` | React + TypeScript frontend. `screens/` is one file per screen. |
 
 ### Three decisions worth knowing about
 
@@ -89,13 +110,30 @@ free text ──────►│ intake    LLM → geocode            │
 ## Tests
 
 ```bash
-make test        # 67 tests, no network, no API keys
+make test        # 71 tests, no network, no API keys
 make lint
 make typecheck
 ```
 
-Everything external is mocked: `respx` for the HTTP providers, stubs for the LLM. `tests/test_graph_integration.py` runs the whole graph end to end — including a fixture where it rains from 15:00, asserting the planner picks a morning departure — and `tests/test_ui_smoke.py` renders every Streamlit page headlessly through `AppTest`.
+Everything external is mocked: `respx` for the HTTP providers, stubs for the LLM. `tests/test_graph_integration.py` runs the whole graph end to end — including a fixture where it rains from 15:00, asserting the planner picks a morning departure — `tests/test_ui_smoke.py` renders every Streamlit page headlessly through `AppTest`, and
+`tests/test_db.py` covers the detached-instance save path the API exercises.
+
+The frontend is typechecked, not unit-tested yet:
+
+```bash
+cd web && npm run build      # tsc --noEmit, then vite build
+```
 
 ## Not built yet
 
-This is the first milestone: one rider, one good plan. Still to come — accounts and real multi-user cabinets, scheduled forecast monitoring that re-checks a saved plan and tells you when the window moves, group rides, GPX export, and road-surface quality from OSM tags.
+One rider, one good plan, one web app. The tracked work is in
+[the issues](https://github.com/AndrewKarpaty/RideWise/issues); the gaps the
+frontend makes most obvious are:
+
+- **Accounts** (#14) — the login screen is a local stub.
+- **GPX export** (#2) — nothing yet carries a plan to the device you navigate with.
+- **Saving a plan** — `SavedPlan` exists in the database but has no API route, so
+  the Options screen cannot keep one.
+- **A real basemap** — `RouteMap` draws the routed geometry as an SVG with no
+  tiles. Swapping in MapLibre means replacing that one component.
+- **Sunset** (#3) and the **curviness dial** (#7) are designed but not wired.

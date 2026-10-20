@@ -470,6 +470,13 @@ def write_briefing(state: PlannerState) -> dict:
 
 
 def assemble(state: PlannerState) -> dict:
+    # Keep each candidate's best window so the plan can be shown as a set of
+    # options, every one with its own departure time and score.
+    windows = state.get("candidate_windows") or {}
+    best_per_candidate = {
+        candidate_id: options[0] for candidate_id, options in windows.items() if options
+    }
+
     plan = RidePlan(
         request=state["request"],
         bike_label=state["bike"].label,
@@ -477,6 +484,7 @@ def assemble(state: PlannerState) -> dict:
         alternatives=state.get("alternatives") or [],
         weather=state.get("weather"),
         weather_options=state.get("weather_options") or [],
+        best_window_by_candidate=best_per_candidate,
         fuel_stops=state.get("fuel_stops") or [],
         gear=state.get("gear") or [],
         briefing=state.get("briefing") or "",

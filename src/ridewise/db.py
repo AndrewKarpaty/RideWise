@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-from sqlalchemy import Engine
+from sqlalchemy import Engine, inspect, text
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from ridewise.config import get_settings
@@ -23,7 +23,30 @@ def get_engine() -> Engine:
         connect_args = {"check_same_thread": False} if "sqlite" in settings.database_url else {}
         _engine = create_engine(settings.database_url, connect_args=connect_args)
         SQLModel.metadata.create_all(_engine)
+        _add_missing_columns(_engine)
     return _engine
+
+
+# Columns added after someone already has a database file. There is no Alembic
+# here yet (see the backlog), so new nullable columns are patched in by hand
+# rather than forcing people to delete ridewise.db.
+_LATER_COLUMNS: dict[str, dict[str, str]] = {
+    "motorcycle": {"photo_path": "VARCHAR"},
+}
+
+
+def _add_missing_columns(engine: Engine) -> None:
+    inspector = inspect(engine)
+    for table, columns in _LATER_COLUMNS.items():
+        if table not in inspector.get_table_names():
+            continue
+        existing = {c["name"] for c in inspector.get_columns(table)}
+        missing = {name: ddl for name, ddl in columns.items() if name not in existing}
+        if not missing:
+            continue
+        with engine.begin() as conn:
+            for name, ddl in missing.items():
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
 
 
 @contextmanager
@@ -55,10 +78,16 @@ def save_motorcycle(bike: Motorcycle) -> Motorcycle:
                 if other.id != bike.id:
                     other.is_default = False
                     session.add(other)
-        session.add(bike)
+        # `merge`, not `add`: callers hand us an instance they loaded in an
+        # earlier session, and clearing the default flag just above may already
+        # have pulled a row with this same primary key into this one. `add`
+        # raises InvalidRequestError on that collision; `merge` copies the
+        # state onto whichever instance the session owns, and still inserts
+        # when the row is new.
+        merged = session.merge(bike)
         session.commit()
-        session.refresh(bike)
-        return bike
+        session.refresh(merged)
+        return merged
 
 
 def delete_motorcycle(bike_id: int) -> None:
@@ -88,10 +117,10 @@ def get_profile() -> RiderProfile:
 
 def save_profile(profile: RiderProfile) -> RiderProfile:
     with session_scope() as session:
-        session.add(profile)
+        merged = session.merge(profile)
         session.commit()
-        session.refresh(profile)
-        return profile
+        session.refresh(merged)
+        return merged
 
 
 def save_plan(plan: SavedPlan) -> SavedPlan:

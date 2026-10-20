@@ -74,6 +74,7 @@ class Motorcycle(SQLModel, table=True):
     has_luggage: bool = False
 
     notes: str = ""
+    photo_path: str | None = None
     is_default: bool = False
     created_at: datetime = Field(default_factory=_utcnow)
 
@@ -243,6 +244,10 @@ class RidePlan(BaseModel):
     alternatives: list[RouteCandidate] = PydanticField(default_factory=list)
     weather: WeatherWindow | None = None
     weather_options: list[WeatherWindow] = PydanticField(default_factory=list)
+    # Each candidate's own best window, keyed by `candidate_id`, so a UI can
+    # show every option with the departure and score it would actually get
+    # rather than only the winner's.
+    best_window_by_candidate: dict[str, WeatherWindow] = PydanticField(default_factory=dict)
     fuel_stops: list[FuelStop] = PydanticField(default_factory=list)
     gear: list[GearItem] = PydanticField(default_factory=list)
     briefing: str = ""
